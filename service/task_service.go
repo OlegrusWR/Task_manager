@@ -1,13 +1,18 @@
 package service
 
 import (
+	"fmt"
+	"math/rand"
 	"sync"
 	"task-manager/models"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type TaskService struct {
 	task map[string]*models.Task
-	mutex sync.Mutex
+	mutex sync.RWMutex
 	workers chan struct{}
 }
 
@@ -16,4 +21,95 @@ func NewTaskService() *TaskService {
 		task: make(map[string]*models.Task),
 		workers: make(chan struct{}, 5),
 	}
+}
+
+func (s *TaskService) CreateTask() *models.Task {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	id := uuid.New().String()
+	task := &models.Task{
+		ID: id,
+		Status: models.StatusPending,
+		TimeAtCreated: time.Now(),
+		Result: "",
+		Error: "",
+	}
+	s.task[id] = task
+
+	go s.exicuteTask(task)
+
+	return task
+}
+
+func (s *TaskService) GetTask(id string) (*models.Task, error){
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	task, exists := s.task[id] 
+	if !exists {
+		return nil, fmt.Errorf("task not found")
+	}
+	return task, nil
+}
+
+func (s *TaskService) DeleteTask(id string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if _, exists := s.task[id]; !exists {
+		return fmt.Errorf("task not found")
+	}
+
+	delete(s.task, id)
+	return nil
+
+}
+
+func (s *TaskService) GetAllTask() []*models.Task {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	tasks := make([]*models.Task, 0, len(s.task))
+	for _, task := range s.task{
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
+func (s *TaskService) exicuteTask(task *models.Task) {
+	s.workers <- struct{}{}
+	defer func(){ <- s.workers}()
+
+	s.mutex.Lock()
+	task.Status = models.StatusPending
+	now := time.Now()
+	task.TimeAtStarted = &now
+	s.mutex.Unlock()
+
+	err := s.simulatorIOWork()
+
+	s.mutex.Lock()
+	completedTime := time.Now()
+	task.TimeAtCompleted = &completedTime
+
+	if err != nil {
+		task.Status = models.StatusFailed
+		task.Error = err.Error()
+	} else {
+		task.Status = models.StatusComplete
+		task.Result = "Task completed successfully"
+	}
+	s.mutex.Unlock()
+}
+
+func (s* TaskService) simulatorIOWork() error {
+	duration := time.Duration(3+rand.Intn(3)) * time.Minute
+	time.Sleep(duration)
+
+	if rand.Intn(100) < 20 {
+		return fmt.Errorf("simulation failed: network timeout")
+	}
+
+	return nil
 }

@@ -19,4 +19,5 @@ type Task struct {
 	TimeAtCompleted *time.Time `json:"time_at_completed"`
 	Result          string     `json:"result"`
 	Error           string     `json:"error"`
+	InProcess       string     `json:"in_process"`
 }

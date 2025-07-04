@@ -37,7 +37,7 @@ func (s *TaskService) CreateTask() *models.Task {
 	}
 	s.task[id] = task
 
-	go s.exicuteTask(task)
+	go s.executeTask(task)
 
 	return task
 }
@@ -50,7 +50,19 @@ func (s *TaskService) GetTask(id string) (*models.Task, error){
 	if !exists {
 		return nil, fmt.Errorf("task not found")
 	}
-	return task, nil
+	copyTask := *task
+	if task.TimeAtStarted != nil {
+		if copyTask.TimeAtStarted != nil {
+			var duration time.Duration
+			if copyTask.TimeAtCompleted != nil {
+				duration = copyTask.TimeAtCompleted.Sub(*copyTask.TimeAtStarted)
+			} else {
+				duration = time.Now().Sub(*copyTask.TimeAtStarted)
+			}
+			copyTask.InProcess = duration.String()
+		}
+	}
+	return &copyTask, nil
 }
 
 func (s *TaskService) DeleteTask(id string) error {
@@ -67,22 +79,34 @@ func (s *TaskService) DeleteTask(id string) error {
 }
 
 func (s *TaskService) GetAllTask() []*models.Task {
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	tasks := make([]*models.Task, 0, len(s.task))
+	
 	for _, task := range s.task{
-		tasks = append(tasks, task)
+		copyTask := *task
+		if copyTask.TimeAtStarted != nil {
+			var duration time.Duration
+			if copyTask.TimeAtCompleted != nil {
+				duration = copyTask.TimeAtCompleted.Sub(*copyTask.TimeAtStarted)
+			} else {
+				duration = time.Now().Sub(*copyTask.TimeAtStarted)
+			}
+			copyTask.InProcess = duration.String()
+		}
+		tasks = append(tasks, &copyTask)
 	}
 	return tasks
 }
 
-func (s *TaskService) exicuteTask(task *models.Task) {
+func (s *TaskService) executeTask(task *models.Task) {
 	s.workers <- struct{}{}
 	defer func(){ <- s.workers}()
 
 	s.mutex.Lock()
-	task.Status = models.StatusPending
+	task.Status = models.StatusRunning
 	now := time.Now()
 	task.TimeAtStarted = &now
 	s.mutex.Unlock()
